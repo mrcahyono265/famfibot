@@ -4,27 +4,16 @@ Telegram-first, multi-workspace financial recording backend. Project requirement
 
 ## Phase 1
 
-The current implementation provides PostgreSQL migrations, workspace/group setup, wallet and ledger models, ledger transaction rules, audit logs, health endpoint, and a protected Telegram webhook endpoint.
+The current implementation provides PostgreSQL migrations, workspace/group setup, private wallet and balance commands, wallet/ledger models, ledger transaction rules, audit logs, health endpoint, and a protected Telegram webhook endpoint.
 
 ## VPS Deployment
 
 1. Copy `.env.example` to `.env` and set strong values. Do not commit `.env`.
 2. Keep `DATABASE_URL` host as `postgres` because API and PostgreSQL run in the same Compose network.
 3. Build and start with `docker compose up -d --build`.
-4. Verify locally from the VPS with `curl http://127.0.0.1:8000/health`.
-5. Configure Nginx to proxy `https://famfibot.birrul.xyz` to `http://127.0.0.1:8000`.
+4. Verify through the public proxy with `curl https://famfibot.birrul.xyz/health`.
+5. Connect the API container to the external Docker proxy network used by Nginx.
 6. Register Telegram's webhook with the HTTPS endpoint and the same `TELEGRAM_WEBHOOK_SECRET`.
-
-Example Nginx location:
-
-```nginx
-location / {
-    proxy_pass http://127.0.0.1:8000;
-    proxy_set_header Host $host;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-}
-```
 
 Telegram webhook target:
 
@@ -33,6 +22,18 @@ https://famfibot.birrul.xyz/webhooks/telegram
 ```
 
 Make the bot a group administrator before running `/setup`; Phase 2 natural-language group recording also requires the bot to receive ordinary group messages.
+
+## Current Commands
+
+Run `/setup` in a Telegram financial group as a Telegram group admin. Wallet and balance data are intentionally private and only work in a direct chat with the bot.
+
+```text
+/start
+/ganti-komunitas
+/wallet
+/wallet tambah Cash Budi CASH 100000
+/saldo
+```
 
 ## Local Verification
 

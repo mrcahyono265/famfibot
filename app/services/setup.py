@@ -15,6 +15,7 @@ from app.models import (
     MemberRole,
     TelegramGroup,
     User,
+    UserWorkspaceContext,
 )
 from app.services.permissions import set_tenant_context
 
@@ -50,6 +51,7 @@ def create_workspace_for_group(
     set_tenant_context(session, family.id)
     session.add(FamilyMember(family_id=family.id, user_id=user.id, role=MemberRole.OWNER))
     session.add(FamilySettings(family_id=family.id))
+    session.add(UserWorkspaceContext(user_id=user.id, family_id=family.id))
     group = TelegramGroup(
         family_id=family.id,
         telegram_chat_id=telegram_chat_id,

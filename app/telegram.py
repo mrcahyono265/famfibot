@@ -19,10 +19,10 @@ class TelegramClient:
             response = httpx.post(f"{self._base_url}/sendMessage", json={"chat_id": chat_id, "text": text}, timeout=10)
             response.raise_for_status()
         except httpx.HTTPStatusError as e:
-            logger.exception("sendMessage failed chat_id=%s status=%s body=%s", chat_id, e.response.status_code, e.response.text[:500])
+            logger.exception("sendMessage failed status=%s", e.response.status_code)
             raise
         except Exception:
-            logger.exception("sendMessage failed chat_id=%s", chat_id)
+            logger.exception("sendMessage failed")
             raise
 
     def is_chat_admin(self, chat_id: int, user_id: int) -> bool:
@@ -36,8 +36,8 @@ class TelegramClient:
             status = response.json()["result"]["status"]
             return status in {"creator", "owner", "administrator"}
         except httpx.HTTPStatusError as e:
-            logger.exception("getChatMember failed chat_id=%s user_id=%s status=%s", chat_id, user_id, e.response.status_code)
+            logger.exception("getChatMember failed status=%s", e.response.status_code)
             raise
         except Exception:
-            logger.exception("getChatMember failed chat_id=%s user_id=%s", chat_id, user_id)
+            logger.exception("getChatMember failed")
             raise

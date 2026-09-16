@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app.models import FamilyMember, MembershipStatus, User, Wallet, WalletAccessGrant, WalletPermission
+from app.models import FamilyMember, MemberRole, MembershipStatus, Wallet, WalletAccessGrant, WalletPermission
 
 
 class PermissionDenied(Exception):
@@ -28,6 +28,19 @@ def require_active_member(session: Session, family_id: UUID, user_id: UUID) -> N
     )
     if member is None:
         raise PermissionDenied("User is not an active workspace member")
+
+
+def require_workspace_admin(session: Session, family_id: UUID, user_id: UUID) -> None:
+    member = session.scalar(
+        select(FamilyMember).where(
+            FamilyMember.family_id == family_id,
+            FamilyMember.user_id == user_id,
+            FamilyMember.status == MembershipStatus.ACTIVE,
+            FamilyMember.role.in_((MemberRole.OWNER, MemberRole.ADMIN)),
+        )
+    )
+    if member is None:
+        raise PermissionDenied("User is not a workspace administrator")
 
 
 def require_wallet_write(session: Session, wallet: Wallet, user_id: UUID) -> None:
