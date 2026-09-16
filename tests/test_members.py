@@ -5,7 +5,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import Base
-from app.models import Family, FamilyMember, GroupMember, GroupType, MemberRole, MembershipStatus, User
+from app.main import TelegramChat, TelegramMessage, _message_family
+from app.models import Family, FamilyMember, GroupMember, MemberRole, MembershipStatus, User
 from app.services.members import bind_group, request_group_membership, approve_member
 from app.services.permissions import PermissionDenied
 
@@ -30,7 +31,7 @@ def test_owner_binds_group_and_approves_join_request(session: Session) -> None:
     session.commit()
 
     with session.begin():
-        group = bind_group(session, family.id, owner.id, -1001, "Parents", GroupType.PARENTS)
+        group = bind_group(session, family.id, owner.id, -1001, "Orang Tua")
         assert request_group_membership(session, group, sibling)
 
     family_member = session.query(FamilyMember).filter_by(family_id=family.id, user_id=sibling.id).one()
@@ -46,9 +47,15 @@ def test_owner_binds_group_and_approves_join_request(session: Session) -> None:
     assert group_member.status == MembershipStatus.ACTIVE
 
     with session.begin():
-        second_group = bind_group(session, family.id, owner.id, -1002, "General", GroupType.GENERAL)
+        second_group = bind_group(session, family.id, owner.id, -1002, "Belanja Rumah")
         assert request_group_membership(session, second_group, sibling)
-        assert approve_member(session, family.id, owner.id, sibling)
+
+    message = TelegramMessage(message_id=1, chat=TelegramChat(id=-1002, type="group"))
+    assert _message_family(session, message, sibling.id) is None
+    session.commit()
+
+    with session.begin():
+        assert approve_member(session, family.id, owner.id, sibling, "Belanja Rumah")
 
     assert session.query(GroupMember).filter_by(group_id=second_group.id, user_id=sibling.id).one().status == MembershipStatus.ACTIVE
 
@@ -69,4 +76,4 @@ def test_member_cannot_bind_group(session: Session) -> None:
 
     with pytest.raises(PermissionDenied):
         with session.begin():
-            bind_group(session, family.id, member.id, -1001, "Parents", GroupType.PARENTS)
+            bind_group(session, family.id, member.id, -1001, "Orang Tua")

@@ -31,15 +31,19 @@ curl -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook" \
 
 ## Current Commands
 
-Run `/setup` in a Telegram financial group as a Telegram group admin. Wallet and balance data are intentionally private and only work in a direct chat with the bot.
+Run `/setup` in the first Telegram financial-flow Group as a Telegram group admin. A workspace can link any number of Groups, such as family, shopping, operations, or community Groups. Wallet and balance data are intentionally private and only work in a direct chat with the bot.
 
 ```text
 /start
+/help
 /setup
-/hubungkan-group PARENTS
+/hubungkan-group
+/hubungkan-group Belanja Rumah
 /gabung
 /anggota
 /anggota setujui Nama
+/anggota setujui Nama di Belanja Rumah
+/anggota tambah Nama MEMBER
 /ganti-komunitas
 /wallet
 /wallet tambah Cash Budi CASH 100000
@@ -55,7 +59,29 @@ Run `/setup` in a Telegram financial group as a Telegram group admin. Wallet and
 
 Natural input is supported after a default wallet exists, for example `Beli makan 25rb`, `Gaji 7jt`, and `Transfer 300rb ke Ibu`. Transfers at or above Rp500.000 require a `Ya` confirmation. Set `DEEPSEEK_API_KEY` only when rule-based parsing needs optional fallback.
 
-Run `/setup` once in `General`. Add the bot as an admin to `Parents`, choose the same workspace in private chat with `/ganti-komunitas`, then run `/hubungkan-group PARENTS` in `Parents`. In a linked Group, `/gabung` creates a pending request. OWNER or ADMIN approves it in private with `/anggota setujui <nama>`.
+Run `/setup` once in the first Group. To link another Group, add the bot as an admin, select the target workspace in private with `/ganti-komunitas`, then run `/hubungkan-group` from that Group. An optional argument names the Group's business label. In a linked Group, `/gabung` creates a pending request. OWNER or ADMIN approves the request in private with `/anggota setujui <nama>`; if the user has requests in several Groups, use `/anggota setujui <nama> di <nama group>`.
+
+## Group Description
+
+```text
+Bot pencatat keuangan komunitas.
+
+Catat transaksi:
+• Beli makan 25rb
+• Gaji 7jt
+• Transfer 300rb ke Ibu
+
+Command Group:
+• /help - panduan semua command
+• /gabung - ajukan keanggotaan Group
+• /anggota - lihat role dan status anggota Group
+
+Admin Group:
+• /setup - buat workspace dari Group pertama
+• /hubungkan-group - hubungkan Group ini ke workspace aktif
+
+Saldo, wallet, laporan, approval anggota, dan PDF tersedia di chat pribadi bot.
+```
 
 ## Local Verification
 

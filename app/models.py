@@ -24,11 +24,6 @@ class MembershipStatus(StrEnum):
     INACTIVE = "INACTIVE"
 
 
-class GroupType(StrEnum):
-    GENERAL = "GENERAL"
-    PARENTS = "PARENTS"
-
-
 class WalletType(StrEnum):
     BANK = "BANK"
     CASH = "CASH"
@@ -108,7 +103,7 @@ class TelegramGroup(Timestamped, Base):
     family_id: Mapped[UUID] = mapped_column(ForeignKey("families.id"), index=True)
     telegram_chat_id: Mapped[int] = mapped_column(BigInteger, unique=True, index=True)
     name: Mapped[str] = mapped_column(String(128))
-    group_type: Mapped[str] = mapped_column(String(16), default=GroupType.GENERAL)
+    group_type: Mapped[str] = mapped_column(String(16), default="GROUP")
     is_active: Mapped[bool] = mapped_column(default=True)
 
 

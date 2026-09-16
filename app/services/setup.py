@@ -11,7 +11,6 @@ from app.models import (
     FamilyMember,
     FamilySettings,
     GroupMember,
-    GroupType,
     MemberRole,
     TelegramGroup,
     User,
@@ -56,7 +55,7 @@ def create_workspace_for_group(
         family_id=family.id,
         telegram_chat_id=telegram_chat_id,
         name=group_name,
-        group_type=GroupType.GENERAL,
+        group_type="GROUP",
     )
     session.add(group)
     session.flush()

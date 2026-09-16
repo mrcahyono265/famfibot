@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import AuditLog, FamilyMember, GroupMember, GroupType, MemberRole, MembershipStatus, TelegramGroup, User
+from app.models import AuditLog, FamilyMember, GroupMember, MemberRole, MembershipStatus, TelegramGroup, User
 from app.services.permissions import require_workspace_admin, set_tenant_context
 
 
@@ -35,16 +35,16 @@ def add_member_to_group(session: Session, family_id: UUID, actor_user_id: UUID, 
         existing.status = MembershipStatus.ACTIVE
 
 
-def bind_group(session: Session, family_id: UUID, actor_user_id: UUID, telegram_chat_id: int, name: str, group_type: GroupType) -> TelegramGroup:
+def bind_group(session: Session, family_id: UUID, actor_user_id: UUID, telegram_chat_id: int, name: str) -> TelegramGroup:
     require_workspace_admin(session, family_id, actor_user_id)
     existing = session.scalar(select(TelegramGroup).where(TelegramGroup.telegram_chat_id == telegram_chat_id))
     if existing is not None:
         raise MemberRuleError("Group ini sudah terhubung ke komunitas keuangan.")
     set_tenant_context(session, family_id)
-    group = TelegramGroup(family_id=family_id, telegram_chat_id=telegram_chat_id, name=name, group_type=group_type)
+    group = TelegramGroup(family_id=family_id, telegram_chat_id=telegram_chat_id, name=name, group_type="GROUP")
     session.add(group)
     session.flush()
-    session.add(AuditLog(family_id=family_id, actor_user_id=actor_user_id, entity_type="group", entity_id=group.id, action="BOUND", before_data=None, after_data={"telegram_chat_id": telegram_chat_id, "group_type": group_type}, reason="Telegram /hubungkan-group"))
+    session.add(AuditLog(family_id=family_id, actor_user_id=actor_user_id, entity_type="group", entity_id=group.id, action="BOUND", before_data=None, after_data={"telegram_chat_id": telegram_chat_id, "name": name}, reason="Telegram /hubungkan-group"))
     return group
 
 
@@ -65,7 +65,7 @@ def request_group_membership(session: Session, group: TelegramGroup, member: Use
     return True
 
 
-def approve_member(session: Session, family_id: UUID, actor_user_id: UUID, member: User) -> bool:
+def approve_member(session: Session, family_id: UUID, actor_user_id: UUID, member: User, group_name: str | None = None) -> bool:
     require_workspace_admin(session, family_id, actor_user_id)
     family_member = session.scalar(select(FamilyMember).where(FamilyMember.family_id == family_id, FamilyMember.user_id == member.id))
     if family_member is None:
@@ -78,7 +78,18 @@ def approve_member(session: Session, family_id: UUID, actor_user_id: UUID, membe
             GroupMember.status == MembershipStatus.PENDING,
         )
     ).all()
-    if family_member.status != MembershipStatus.PENDING and not group_members:
+    if group_name:
+        group_members = session.scalars(
+            select(GroupMember).join(TelegramGroup, TelegramGroup.id == GroupMember.group_id).where(
+                TelegramGroup.family_id == family_id,
+                TelegramGroup.name.ilike(group_name),
+                GroupMember.user_id == member.id,
+                GroupMember.status == MembershipStatus.PENDING,
+            )
+        ).all()
+    elif len(group_members) > 1:
+        raise MemberRuleError("Pilih group dengan /anggota setujui <nama> di <nama group>.")
+    if not group_members:
         return False
     if family_member.status == MembershipStatus.PENDING:
         family_member.status = MembershipStatus.ACTIVE
