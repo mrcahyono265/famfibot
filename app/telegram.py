@@ -25,6 +25,19 @@ class TelegramClient:
             logger.exception("sendMessage failed")
             raise
 
+    def send_document(self, chat_id: int, filename: str, content: bytes) -> None:
+        try:
+            response = httpx.post(
+                f"{self._base_url}/sendDocument",
+                data={"chat_id": str(chat_id)},
+                files={"document": (filename, content, "application/pdf")},
+                timeout=30,
+            )
+            response.raise_for_status()
+        except Exception:
+            logger.exception("sendDocument failed")
+            raise
+
     def is_chat_admin(self, chat_id: int, user_id: int) -> bool:
         try:
             response = httpx.post(

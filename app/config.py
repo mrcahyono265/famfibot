@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     database_url: str
     telegram_bot_token: str
     telegram_webhook_secret: str
+    deepseek_api_key: str | None = None
+    deepseek_model: str = "deepseek-chat"
 
 
 @lru_cache

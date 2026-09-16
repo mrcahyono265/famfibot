@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import AuditLog, LedgerEntry, Transaction, TransactionStatus, TransactionType, Wallet
@@ -42,9 +42,10 @@ def record_transaction(session: Session, command: RecordTransaction) -> Transact
     destination = _wallet(session, command.family_id, command.destination_wallet_id)
     _validate(command, source, destination)
 
-    for wallet in (source, destination):
-        if wallet is not None:
-            require_wallet_write(session, wallet, command.actor_user_id)
+    if source is not None:
+        require_wallet_write(session, source, command.actor_user_id)
+    if destination is not None and command.transaction_type == TransactionType.INCOME:
+        require_wallet_write(session, destination, command.actor_user_id)
 
     transaction = Transaction(
         family_id=command.family_id,
@@ -143,6 +144,31 @@ def void_transaction(session: Session, family_id: UUID, actor_user_id: UUID, tra
             reason=None,
         )
     )
+
+
+def recent_transactions(session: Session, family_id: UUID, user_id: UUID, transaction_date: date | None = None) -> list[Transaction]:
+    set_tenant_context(session, family_id)
+    source_owner = Wallet.__table__.alias("source_owner")
+    destination_owner = Wallet.__table__.alias("destination_owner")
+    conditions = [
+        Transaction.family_id == family_id,
+        Transaction.status == TransactionStatus.ACTIVE,
+        or_(
+            Transaction.created_by_user_id == user_id,
+            source_owner.c.owner_user_id == user_id,
+            destination_owner.c.owner_user_id == user_id,
+        ),
+    ]
+    if transaction_date is not None:
+        conditions.append(Transaction.transaction_date == transaction_date)
+    return list(session.scalars(
+        select(Transaction)
+        .outerjoin(source_owner, Transaction.source_wallet_id == source_owner.c.id)
+        .outerjoin(destination_owner, Transaction.destination_wallet_id == destination_owner.c.id)
+        .where(and_(*conditions))
+        .order_by(Transaction.transaction_date.desc(), Transaction.created_at.desc())
+        .limit(20)
+    ).all())
 
 
 def _wallet(session: Session, family_id: UUID, wallet_id: UUID | None) -> Wallet | None:

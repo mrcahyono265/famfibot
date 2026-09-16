@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.models import AuditLog, Wallet, WalletAccessGrant, WalletStatus, WalletType
+from app.models import AuditLog, UserWorkspaceContext, Wallet, WalletAccessGrant, WalletStatus, WalletType
 from app.services.permissions import require_workspace_admin, set_tenant_context
 from app.services.transactions import wallet_balance
 
@@ -38,6 +38,9 @@ def create_wallet(
     )
     session.add(wallet)
     session.flush()
+    context = session.get(UserWorkspaceContext, actor_user_id)
+    if context is not None and context.family_id == family_id and context.default_wallet_id is None:
+        context.default_wallet_id = wallet.id
     session.add(
         AuditLog(
             family_id=family_id,
@@ -69,3 +72,17 @@ def accessible_wallets(session: Session, family_id: UUID, user_id: UUID) -> list
         .order_by(Wallet.name)
     ).all()
     return [(wallet, wallet_balance(session, family_id, wallet.id)) for wallet in wallets]
+
+
+def default_wallet(session: Session, family_id: UUID, user_id: UUID) -> Wallet | None:
+    set_tenant_context(session, family_id)
+    context = session.get(UserWorkspaceContext, user_id)
+    if context is None or context.family_id != family_id or context.default_wallet_id is None:
+        return None
+    return session.scalar(
+        select(Wallet).where(
+            Wallet.id == context.default_wallet_id,
+            Wallet.family_id == family_id,
+            Wallet.status == WalletStatus.ACTIVE,
+        )
+    )

@@ -33,7 +33,16 @@ Run `/setup` in a Telegram financial group as a Telegram group admin. Wallet and
 /wallet
 /wallet tambah Cash Budi CASH 100000
 /saldo
+/masuk 7000000 Gaji September
+/keluar 25000 Makan siang
+/transfer 300000 ke Ibu
+/cek
+/laporan
+/undo
+/export-laporan-pdf
 ```
+
+Natural input is supported after a default wallet exists, for example `Beli makan 25rb`, `Gaji 7jt`, and `Transfer 300rb ke Ibu`. Transfers at or above Rp500.000 require a `Ya` confirmation. Set `DEEPSEEK_API_KEY` only when rule-based parsing needs optional fallback.
 
 ## Local Verification
 

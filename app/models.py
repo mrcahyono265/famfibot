@@ -57,6 +57,10 @@ class TransactionStatus(StrEnum):
     SUPERSEDED = "SUPERSEDED"
 
 
+class PendingActionType(StrEnum):
+    TRANSACTION = "TRANSACTION"
+
+
 def new_id() -> UUID:
     return uuid4()
 
@@ -130,6 +134,7 @@ class UserWorkspaceContext(Timestamped, Base):
 
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), primary_key=True)
     family_id: Mapped[UUID] = mapped_column(ForeignKey("families.id"), index=True)
+    default_wallet_id: Mapped[UUID | None] = mapped_column(ForeignKey("wallets.id"))
 
 
 class Wallet(Timestamped, Base):
@@ -187,6 +192,19 @@ class Transaction(Timestamped, Base):
     origin_message_id: Mapped[int | None] = mapped_column(BigInteger)
     original_message: Mapped[str | None] = mapped_column(Text)
     confidence: Mapped[int | None] = mapped_column()
+
+
+class PendingAction(Base):
+    __tablename__ = "pending_actions"
+    __table_args__ = (UniqueConstraint("family_id", "user_id", "chat_id"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=new_id)
+    family_id: Mapped[UUID] = mapped_column(ForeignKey("families.id"), index=True)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    chat_id: Mapped[int] = mapped_column(BigInteger)
+    action_type: Mapped[str] = mapped_column(String(32), default=PendingActionType.TRANSACTION)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class LedgerEntry(Base):
