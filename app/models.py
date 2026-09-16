@@ -19,6 +19,7 @@ class MemberRole(StrEnum):
 
 
 class MembershipStatus(StrEnum):
+    PENDING = "PENDING"
     ACTIVE = "ACTIVE"
     INACTIVE = "INACTIVE"
 

@@ -14,8 +14,8 @@ logging.basicConfig(level=logging.INFO)
 from pydantic import BaseModel, Field
 from app.config import get_settings
 from app.database import SessionLocal
-from app.models import Family, FamilyMember, FamilySettings, MemberRole, MembershipStatus, TelegramGroup, Transaction, TransactionStatus, TransactionType, User, UserWorkspaceContext, Wallet, WalletStatus, WalletType
-from app.services.members import MemberRuleError, add_member
+from app.models import Family, FamilyMember, FamilySettings, GroupMember, GroupType, MemberRole, MembershipStatus, TelegramGroup, Transaction, TransactionStatus, TransactionType, User, UserWorkspaceContext, Wallet, WalletStatus, WalletType
+from app.services.members import MemberRuleError, add_member, approve_member, bind_group, request_group_membership
 from app.services.parser import ParsedMessage, parse_transaction
 from app.services.deepseek import parse_with_deepseek
 from app.services.pending import save_transaction_confirmation, take_transaction_confirmation
@@ -33,6 +33,7 @@ class TelegramUser(BaseModel):
     first_name: str
     last_name: str | None = None
     username: str | None = None
+    is_bot: bool = False
 
     @property
     def display_name(self) -> str:
@@ -54,9 +55,21 @@ class TelegramMessage(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class TelegramChatMember(BaseModel):
+    user: TelegramUser
+    status: str
+
+
+class TelegramChatMemberUpdate(BaseModel):
+    chat: TelegramChat
+    old_chat_member: TelegramChatMember
+    new_chat_member: TelegramChatMember
+
+
 class TelegramUpdate(BaseModel):
     update_id: int
     message: TelegramMessage | None = None
+    chat_member: TelegramChatMemberUpdate | None = None
 
 
 app = FastAPI(title="Family Finance Bot", version="0.1.0", docs_url=None, redoc_url=None)
@@ -75,6 +88,9 @@ async def telegram_webhook(request: Request) -> dict[str, bool]:
         raise HTTPException(status_code=403, detail="Invalid webhook secret")
 
     update = TelegramUpdate.model_validate(await request.json())
+    if update.chat_member is not None:
+        _handle_chat_member_update(update.chat_member)
+        return {"ok": True}
     message = update.message
     if message is None or message.text is None or message.from_ is None:
         logger.info("telegram update ignored update_id=%s", update.update_id)
@@ -86,8 +102,14 @@ async def telegram_webhook(request: Request) -> dict[str, bool]:
     try:
         if command == "/setup":
             _handle_setup(message)
+        elif command == "/help":
+            _handle_help(message)
         elif command == "/start":
             _handle_start(message)
+        elif command == "/hubungkan-group":
+            _handle_bind_group(message, arguments)
+        elif command == "/gabung":
+            _handle_join_group(message)
         elif command == "/ganti-komunitas":
             _handle_switch_workspace(message, arguments)
         elif command == "/wallet":
@@ -164,6 +186,35 @@ def _handle_setup(message: TelegramMessage) -> None:
         logger.exception("sendMessage setup success failed")
 
 
+def _handle_help(message: TelegramMessage) -> None:
+    telegram.send_message(message.chat.id, _help_text(message.chat.type == "private"))
+
+
+def _help_text(is_private: bool) -> str:
+    if not is_private:
+        return (
+            "Panduan Group\n\n"
+            "Catat transaksi: Beli makan 25rb, Gaji 7jt, atau Transfer 300rb ke Ibu.\n\n"
+            "/gabung - ajukan keanggotaan komunitas\n"
+            "/anggota - lihat anggota aplikasi Group\n"
+            "/setup - buat komunitas dari Group pertama (admin)\n"
+            "/hubungkan-group PARENTS - hubungkan Group ini (admin)\n\n"
+            "Saldo, wallet, laporan, dan approval anggota hanya tersedia di chat pribadi bot."
+        )
+    return (
+        "Panduan Chat Pribadi\n\n"
+        "/ganti-komunitas - pilih komunitas aktif\n"
+        "/anggota - lihat anggota dan permintaan bergabung\n"
+        "/anggota setujui <nama> - setujui anggota (OWNER/ADMIN)\n"
+        "/wallet - lihat atau buat wallet\n"
+        "/saldo - lihat saldo wallet yang diizinkan\n"
+        "/cek [YYYY-MM-DD] - lihat transaksi\n"
+        "/laporan - ringkasan pemasukan dan pengeluaran\n"
+        "/undo - batalkan transaksi terakhir Anda\n"
+        "/export-laporan-pdf - unduh laporan PDF"
+    )
+
+
 def _handle_start(message: TelegramMessage) -> None:
     sender = message.from_
     if sender is None:
@@ -177,6 +228,66 @@ def _handle_start(message: TelegramMessage) -> None:
         message.chat.id,
         "Gunakan /ganti-komunitas untuk memilih komunitas, /wallet untuk wallet, atau /saldo untuk saldo.",
     )
+
+
+def _handle_bind_group(message: TelegramMessage, arguments: str) -> None:
+    sender = message.from_
+    if sender is None or message.chat.type not in {"group", "supergroup"}:
+        telegram.send_message(message.chat.id, "/hubungkan-group hanya dapat digunakan di group Telegram.")
+        return
+    if not telegram.is_chat_admin(message.chat.id, sender.id):
+        telegram.send_message(message.chat.id, "Hanya admin group Telegram yang dapat menghubungkan group.")
+        return
+    try:
+        group_type = GroupType(arguments.upper()) if arguments else GroupType.PARENTS
+    except ValueError:
+        telegram.send_message(message.chat.id, "Gunakan /hubungkan-group GENERAL atau /hubungkan-group PARENTS.")
+        return
+    with SessionLocal.begin() as session:
+        user = find_or_create_user(session, sender.id, sender.display_name, sender.username)
+        family = _active_family(session, user.id)
+        if family is None:
+            text = "Pilih komunitas aktif dulu di chat pribadi dengan /ganti-komunitas."
+        else:
+            try:
+                bind_group(session, family.id, user.id, message.chat.id, message.chat.title or "Group", group_type)
+                text = f"Group ini terhubung ke {family.name} sebagai {group_type}."
+            except (MemberRuleError, PermissionDenied) as error:
+                text = f"Group tidak terhubung: {error}"
+    telegram.send_message(message.chat.id, text)
+
+
+def _handle_join_group(message: TelegramMessage) -> None:
+    sender = message.from_
+    if sender is None or message.chat.type not in {"group", "supergroup"}:
+        telegram.send_message(message.chat.id, "/gabung hanya dapat digunakan di group yang terhubung.")
+        return
+    with SessionLocal.begin() as session:
+        group = session.scalar(select(TelegramGroup).where(TelegramGroup.telegram_chat_id == message.chat.id, TelegramGroup.is_active.is_(True)))
+        if group is None:
+            text = "Group ini belum terhubung ke komunitas keuangan."
+        else:
+            user = find_or_create_user(session, sender.id, sender.display_name, sender.username)
+            if request_group_membership(session, group, user):
+                text = "Permintaan bergabung dikirim. OWNER atau ADMIN akan menyetujuinya di chat pribadi bot."
+            else:
+                text = "Kamu sudah menjadi anggota aktif komunitas ini."
+    telegram.send_message(message.chat.id, text)
+
+
+def _handle_chat_member_update(update: TelegramChatMemberUpdate) -> None:
+    if update.chat.type not in {"group", "supergroup"} or update.new_chat_member.user.is_bot:
+        return
+    active_statuses = {"member", "administrator", "creator", "owner"}
+    if update.new_chat_member.status not in active_statuses or update.old_chat_member.status in active_statuses:
+        return
+    with SessionLocal.begin() as session:
+        group = session.scalar(select(TelegramGroup).where(TelegramGroup.telegram_chat_id == update.chat.id, TelegramGroup.is_active.is_(True)))
+        if group is None:
+            return
+        member = update.new_chat_member.user
+        user = find_or_create_user(session, member.id, member.display_name, member.username)
+        request_group_membership(session, group, user)
 
 
 def _handle_switch_workspace(message: TelegramMessage, arguments: str) -> None:
@@ -259,21 +370,48 @@ def _handle_balance(message: TelegramMessage) -> None:
 
 
 def _handle_members(message: TelegramMessage, arguments: str) -> None:
-    if not _require_private_chat(message):
-        return
     sender = message.from_
     if sender is None:
+        return
+    if message.chat.type in {"group", "supergroup"}:
+        if arguments:
+            telegram.send_message(message.chat.id, "Di group, gunakan /anggota untuk melihat anggota. Kelola anggota di chat pribadi bot.")
+            return
+        with SessionLocal.begin() as session:
+            members = session.execute(
+                select(User, GroupMember)
+                .join(GroupMember, GroupMember.user_id == User.id)
+                .join(TelegramGroup, TelegramGroup.id == GroupMember.group_id)
+                .where(TelegramGroup.telegram_chat_id == message.chat.id)
+                .order_by(User.display_name)
+            ).all()
+            text = "\n".join(f"{user.display_name} - {member.status}" for user, member in members) or "Belum ada anggota aplikasi di group ini."
+        telegram.send_message(message.chat.id, text)
         return
     with SessionLocal.begin() as session:
         actor = find_or_create_user(session, sender.id, sender.display_name, sender.username)
         family = _active_family(session, actor.id)
         if family is None:
             text = "Pilih komunitas terlebih dahulu dengan /ganti-komunitas."
+        elif arguments.lower().startswith("setujui "):
+            name = arguments[8:].strip()
+            member = session.scalar(select(User).where(User.display_name.ilike(name)))
+            if member is None:
+                text = "User tidak ditemukan."
+            elif approve_member(session, family.id, actor.id, member):
+                text = f"{member.display_name} disetujui sebagai MEMBER."
+            else:
+                text = "Tidak ada permintaan bergabung untuk user tersebut."
         elif not arguments:
             members = session.execute(
                 select(User, FamilyMember).join(FamilyMember, FamilyMember.user_id == User.id).where(FamilyMember.family_id == family.id, FamilyMember.status == MembershipStatus.ACTIVE).order_by(User.display_name)
             ).all()
+            pending = session.execute(
+                select(User).join(FamilyMember, FamilyMember.user_id == User.id).where(FamilyMember.family_id == family.id, FamilyMember.status == MembershipStatus.PENDING).order_by(User.display_name)
+            ).scalars().all()
             text = "\n".join(f"{user.display_name} - {member.role}" for user, member in members)
+            if pending:
+                text += "\n\nMenunggu persetujuan:\n" + "\n".join(user.display_name for user in pending)
         elif arguments.lower().startswith("tambah "):
             try:
                 name, role_text = arguments[7:].rsplit(maxsplit=1)
@@ -286,7 +424,7 @@ def _handle_members(message: TelegramMessage, arguments: str) -> None:
             except (ValueError, MemberRuleError, PermissionDenied) as error:
                 text = f"Anggota tidak ditambahkan: {error}"
         else:
-            text = "Gunakan /anggota atau /anggota tambah <nama> <OWNER|ADMIN|MEMBER|VIEWER>."
+            text = "Gunakan /anggota, /anggota setujui <nama>, atau /anggota tambah <nama> <OWNER|ADMIN|MEMBER|VIEWER>."
     telegram.send_message(message.chat.id, text)
 
 
